@@ -2,7 +2,13 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const { Product, Variant } = require('../models/Product');
+
+const uploadDir = 'uploads/';
+if (!fs.existsSync(uploadDir)){
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -18,9 +24,9 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // API Endpoint to receive product details from Frontend Admin Panel
-router.post('/create-product', async (req, res) => {
+router.post('/create-product',upload.single('productImage'), async (req, res) => {
   const { name, description, price, variants } = req.body;
-
+try {
   const parsedVariants=JSON.parse(variants); // Convert the stringified variants back to an array of objects
 
   let imageUrl = '';
@@ -30,7 +36,7 @@ router.post('/create-product', async (req, res) => {
       imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
     }
 
-  try {
+  
     // 1. Create and save the primary product
     const newProduct = new Product({ name, description });
     await newProduct.save();
