@@ -134,51 +134,66 @@ router.get('/webhook', (req, res) => {
  * Triggers every single time a customer interacts with your catalog.
  */
 router.post('/webhook', async (req, res) => {
+  // 1. Print the incoming JSON immediately so we can inspect it in Render logs
+  console.log("📥 Incoming Webhook Payload Object:", JSON.stringify(req.body, null, 2));
+
   try {
     const body = req.body;
 
-    // Direct return out if the ping is a placeholder or system status ping
-    if (!body.object || !body.entry?.[0]?.changes?.[0]?.value?.messages) {
-      return res.status(200).send('EVENT_RECEIVED'); // Always reply 200 OK fast so Meta doesn't retry
+    // Standard guardrail validation
+    if (!body || !body.entry?.[0]?.changes?.[0]?.value) {
+      console.log("ℹ️ Webhook received, but it doesn't contain a standard Meta value change object.");
+      return res.status(200).send('EVENT_RECEIVED');
     }
 
-    const message = body.entry[0].changes[0].value.messages[0];
+    const value = body.entry[0].changes[0].value;
 
-    // Check if the message is a user placing a product order cart item bundle
-    if (message.type === 'order') {
-      const orderDetails = message.order;
-      const productItems = orderDetails.product_items; // Array of item variants inside the order cart
-      
-      console.log(`🛒 Incoming order caught! Order ID: ${orderDetails.catalog_id}`);
+    // 🚀 UNIFICATION LAYER: Extract product items safely whether it's an order object or message order
+    let productItems = null;
 
-      // Loop through each product variant stacked inside the customer's cart selection
+    if (value.messages?.[0]?.type === 'order') {
+      // Structure A: Sent when a real user checks out a cart item layout on a phone
+      productItems = value.messages[0].order.product_items;
+      console.log("🛒 Real user order structure detected in message array!");
+    } else if (value.order?.product_items) {
+      // Structure B: Sent by Meta's dashboard testing utility buttons
+      productItems = value.order.product_items;
+      console.log("🛠️ Meta dashboard mock test order structure detected!");
+    }
+
+    // 2. If we found items, process the stock deductions in MongoDB
+    if (productItems && Array.isArray(productItems)) {
+      console.log(`📦 Found ${productItems.length} item variant(s) in order bundle. Processing stock...`);
+
       for (const item of productItems) {
         const itemSku = item.product_retailer_id; // e.g., "TOP-F-GREEN-L"
-        const orderedQuantity = Number(item.quantity);
+        const orderedQuantity = Number(item.quantity || 1);
 
-        console.log(`Decrementing inventory: SKU: ${itemSku} | Qty: ${orderedQuantity}`);
+        console.log(`⚡ Modifying Database: Target SKU: [${itemSku}] | Deducting Quantity: [${orderedQuantity}]`);
 
-        // ⚡ AUTOMATIC MONGODB UPDATE: Decrement stock using the negative incremental operator
+        // Update MongoDB (adjust 'quantity' to 'stock' if your schema property uses that name!)
         const updatedVariant = await Variant.findOneAndUpdate(
           { sku: itemSku },
-          { $inc: { quantity: -orderedQuantity } },
-          { new: true } // Returns the newly modified variant document
+          { $inc: { quantity: -orderedQuantity } }, 
+          { new: true }
         );
 
-        if (updatedVariant && updatedVariant.quantity < 0) {
-          console.warn(`⚠️ Warning: SKU ${itemSku} dropped into negative inventory territory (${updatedVariant.quantity})!`);
-          // Optional code: Trigger a re-order alert, switch availability to out-of-stock etc.
+        if (updatedVariant) {
+          console.log(`✅ Success! Updated SKU ${itemSku}. New database stock: ${updatedVariant.quantity}`);
+        } else {
+          console.error(`❌ Mongoose Error: Could not find any variant document matching SKU: "${itemSku}" inside MongoDB.`);
         }
       }
+    } else {
+      console.log("ℹ️ Webhook payload processed safely, but no product catalog order items array was present.");
     }
 
-    // Always tell Meta the event landed safely so it stops hammering your API route loop
-    res.status(200).send('EVENT_RECEIVED');
+    // Always tell Meta we got the data so it doesn't loop retry calls
+    return res.status(200).send('EVENT_RECEIVED');
 
   } catch (error) {
-    console.error("❌ Webhook execution process failure:", error);
-    // Even if it fails, send a 200 out so Meta doesn't blacklist or suspend your webhook path
-    res.status(200).send('EVENT_RECEIVED'); 
+    console.error("❌ Webhook processor exception crash:", error);
+    return res.status(200).send('EVENT_RECEIVED'); 
   }
 });
 
