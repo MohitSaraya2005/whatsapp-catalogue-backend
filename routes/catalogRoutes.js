@@ -69,27 +69,37 @@ try {
 
 
 // Dynamic JSON Data Feed for Meta Commerce Manager
+// Dynamic CSV Data Feed for Meta Commerce Manager
 router.get('/meta-feed', async (req, res) => {
   try {
     // Find all variants and pull details from their parent products
     const variants = await Variant.find().populate('productId');
 
-    const metaItems = variants.map((v) => ({
-      id: v.sku, // The retailer ID Meta tracks
-      title: `${v.productId.name} - ${v.color} (${v.size})`,
-      description: v.productId.description || 'High-quality clothing item.',
-      availability: v.quantity > 0 ? 'in stock' : 'out of stock',
-      condition: 'new',
-      price: `${v.price} INR`, // Adjust currency code as per store location
-      link: 'https://example-placeholder-store.com', // Meta requires a URL fallback link
-      image_link: v.image || 'https://placehold.co/600x600.png', // Temporary placeholder image link
-      brand: 'StoreBrand',
-      item_group_id: v.productId._id.toString() // Groups identical clothing pieces together
-    }));
+    // 1. Define your CSV Header Columns (Meta's required naming schema)
+    let csvContent = "id,title,description,availability,condition,price,link,image_link,brand,item_group_id\n";
 
-    res.status(200).json(metaItems);
+    // 2. Loop through variants and build individual text rows
+    variants.forEach((v) => {
+      // Clean string inputs to prevent broken rows from commas or newlines
+      const cleanTitle = `${v.productId.name} - ${v.color} (${v.size})`.replace(/,/g, ' ');
+      const cleanDescription = (v.productId.description || 'High-quality clothing item.').replace(/,/g, ' ').replace(/\n/g, ' ');
+      const availability = v.quantity > 0 ? 'in stock' : 'out of stock';
+      const cleanImageLink = v.image || 'https://placehold.co/600x600.png';
+
+      // Append row line to your data string sheet
+      csvContent += `"${v.sku}","${cleanTitle}","${cleanDescription}","${availability}","new","${v.price} INR","https://example-placeholder-store.com","${cleanImageLink}","StoreBrand","${v.productId._id.toString()}"\n`;
+    });
+
+    // 3. Set content response headers telling Meta it is downloading a real CSV document
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=meta-feed.csv');
+
+    // Send the raw CSV spreadsheet string text directly out
+    res.status(200).send(csvContent);
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Meta feed creation crashed:", error);
+    res.status(500).send(`Error generating feed: ${error.message}`);
   }
 });
 
