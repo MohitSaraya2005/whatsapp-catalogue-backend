@@ -68,29 +68,30 @@ try {
 });
 
 
-// Dynamic JSON Data Feed for Meta Commerce Manager
+
 // Dynamic CSV Data Feed for Meta Commerce Manager
+// Dynamic CSV Data Feed for Meta Commerce Manager (With Explicit Sizing Fields)
 router.get('/meta-feed', async (req, res) => {
   try {
     // Find all variants and pull details from their parent products
     const variants = await Variant.find().populate('productId');
 
-    // 1. Define your CSV Header Columns (Meta's required naming schema)
-    let csvContent = "id,title,description,availability,condition,price,link,image_link,brand,item_group_id\n";
+    // 💡 FIX: Added 'size' and 'color' to Meta's official CSV column header string row
+    let csvContent = "id,title,description,availability,condition,price,link,image_link,brand,item_group_id,size,color\n";
 
-    // 2. Loop through variants and build individual text rows
+    // Loop through variants and build individual text rows
     variants.forEach((v) => {
-      // Clean string inputs to prevent broken rows from commas or newlines
-      const cleanTitle = `${v.productId.name} - ${v.color} (${v.size})`.replace(/,/g, ' ');
+      // Keep titles clean and unified so they match across variants
+      const cleanTitle = `${v.productId.name}`.replace(/,/g, ' '); 
       const cleanDescription = (v.productId.description || 'High-quality clothing item.').replace(/,/g, ' ').replace(/\n/g, ' ');
       const availability = v.quantity > 0 ? 'in stock' : 'out of stock';
       const cleanImageLink = v.image || 'https://placehold.co/600x600.png';
 
-      // Append row line to your data string sheet
-      csvContent += `"${v.sku}","${cleanTitle}","${cleanDescription}","${availability}","new","${v.price} INR","https://example-placeholder-store.com","${cleanImageLink}","StoreBrand","${v.productId._id.toString()}"\n`;
+      // 💡 FIX: Appended explicit size and color variables to the end of the text row data mapping line
+      csvContent += `"${v.sku}","${cleanTitle}","${cleanDescription}","${availability}","new","${v.price} INR","https://example-placeholder-store.com","${cleanImageLink}","StoreBrand","${v.productId._id.toString()}","${v.size}","${v.color}"\n`;
     });
 
-    // 3. Set content response headers telling Meta it is downloading a real CSV document
+    // Set content response headers telling Meta it is downloading a real CSV document
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=meta-feed.csv');
 
@@ -102,5 +103,6 @@ router.get('/meta-feed', async (req, res) => {
     res.status(500).send(`Error generating feed: ${error.message}`);
   }
 });
+
 
 module.exports = router;
