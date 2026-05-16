@@ -105,4 +105,83 @@ router.get('/meta-feed', async (req, res) => {
 });
 
 
+
+// 🔒 CHOOSE A UNIQUE SECURITY KEY STRING
+const VERIFY_TOKEN = "my_super_secret_verify_token_12345";
+
+/**
+ * 1. THE HANDSHAKE (GET Route)
+ * Meta knocks on this door to verify that your server is real and secure.
+ */
+router.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  // Check if mode and token match your secret string
+  if (mode && token) {
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+      console.log('🎉 Webhook verified successfully by Meta!');
+      return res.status(200).send(challenge); // Return challenge code to complete handshake
+    } else {
+      return res.sendStatus(403); // Security mismatch error
+    }
+  }
+});
+
+/**
+ * 2. THE ORDER PROCESSING ENGINE (POST Route)
+ * Triggers every single time a customer interacts with your catalog.
+ */
+router.post('/webhook', async (req, res) => {
+  try {
+    const body = req.body;
+
+    // Direct return out if the ping is a placeholder or system status ping
+    if (!body.object || !body.entry?.[0]?.changes?.[0]?.value?.messages) {
+      return res.status(200).send('EVENT_RECEIVED'); // Always reply 200 OK fast so Meta doesn't retry
+    }
+
+    const message = body.entry[0].changes[0].value.messages[0];
+
+    // Check if the message is a user placing a product order cart item bundle
+    if (message.type === 'order') {
+      const orderDetails = message.order;
+      const productItems = orderDetails.product_items; // Array of item variants inside the order cart
+      
+      console.log(`🛒 Incoming order caught! Order ID: ${orderDetails.catalog_id}`);
+
+      // Loop through each product variant stacked inside the customer's cart selection
+      for (const item of productItems) {
+        const itemSku = item.product_retailer_id; // e.g., "TOP-F-GREEN-L"
+        const orderedQuantity = Number(item.quantity);
+
+        console.log(`Decrementing inventory: SKU: ${itemSku} | Qty: ${orderedQuantity}`);
+
+        // ⚡ AUTOMATIC MONGODB UPDATE: Decrement stock using the negative incremental operator
+        const updatedVariant = await Variant.findOneAndUpdate(
+          { sku: itemSku },
+          { $inc: { quantity: -orderedQuantity } },
+          { new: true } // Returns the newly modified variant document
+        );
+
+        if (updatedVariant && updatedVariant.quantity < 0) {
+          console.warn(`⚠️ Warning: SKU ${itemSku} dropped into negative inventory territory (${updatedVariant.quantity})!`);
+          // Optional code: Trigger a re-order alert, switch availability to out-of-stock etc.
+        }
+      }
+    }
+
+    // Always tell Meta the event landed safely so it stops hammering your API route loop
+    res.status(200).send('EVENT_RECEIVED');
+
+  } catch (error) {
+    console.error("❌ Webhook execution process failure:", error);
+    // Even if it fails, send a 200 out so Meta doesn't blacklist or suspend your webhook path
+    res.status(200).send('EVENT_RECEIVED'); 
+  }
+});
+
+
+
 module.exports = router;
