@@ -2,6 +2,7 @@
 node_modules/
 jspm_packages/
 web_modules/
+uploads/
 
 # Environment variables and secrets (CRITICAL: Keeps your database password and Meta keys safe)
 .env

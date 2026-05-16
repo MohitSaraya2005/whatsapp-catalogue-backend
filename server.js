@@ -2,9 +2,11 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
+
 
 const app = express();
-
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); // Serve images from the 'uploads' directory)
 const catalogRoutes = require('./routes/catalogRoutes');
 
 // Middleware
